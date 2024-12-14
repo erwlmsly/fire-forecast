@@ -73,7 +73,7 @@ def get_storm_prediction_center_fire_weather_outlooks() -> dict:
             # get the day URL
             day_dict = getattr(env, spc_url_dict)
 
-            print(f"Getting storm prediction center GeoJSON data for day: {counter}")
+            print(f"Requesting Storm Prediction Center Fire Weather Forecast data for day: {counter}")
 
             # get the fire weather outlook GeoJSON
             fire_wx_outlook_geojson = get_arcgis_web_feature_service_geojson_dict(
