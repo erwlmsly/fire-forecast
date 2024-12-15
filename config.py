@@ -29,20 +29,20 @@ class Environment(BaseSettings):
         "http://www.bom.gov.au/nsw/forecasts/fire-danger-ratings.shtml"
     )
     AUSTRALIA_VICTORIA_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/nsw/forecasts/fire-danger-ratings.shtml"
+        "http://www.bom.gov.au/vic/forecasts/fire-danger-ratings.shtml"
     )
     AUSTRALIA_QUEENSLAND_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/nsw/forecasts/fire-danger-ratings.shtml"
+        "http://www.bom.gov.au/qld/forecasts/fire-danger-ratings.shtml"
     )
     AUSTRALIA_WESTERN_AUSTRALIA_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/nsw/forecasts/fire-danger-ratings.shtml"
+        "http://www.bom.gov.au/wa/forecasts/fire-danger-ratings.shtml"
     )
     AUSTRALIA_SOUTH_AUSTRALIA_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/nsw/forecasts/fire-danger-ratings.shtml"
+        "http://www.bom.gov.au/sa/forecasts/fire-danger-ratings.shtml"
     )
     AUSTRALIA_TASMANIA_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/nsw/forecasts/fire-danger-ratings.shtml"
+        "http://www.bom.gov.au/tas/forecasts/fire-danger-ratings.shtml"
     )
     AUSTRALIA_NORTHERN_TERRITORY_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/nsw/forecasts/fire-danger-ratings.shtml"
+        "http://www.bom.gov.au/nt/forecasts/fire-danger-ratings.shtml"
     )

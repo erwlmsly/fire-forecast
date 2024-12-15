@@ -1,4 +1,8 @@
-from requests import get
+from io import StringIO
+
+import pandas as pd
+from bs4 import BeautifulSoup
+from requests import Session, get
 
 from config import Environment
 
@@ -98,4 +102,67 @@ def get_storm_prediction_center_fire_weather_outlooks() -> dict:
         print(
             f"get_storm_prediction_center_fire_weather_outlooks_geojsons failed due to this error: {e}"
         )
+        raise
+
+
+def scrape_bureau_of_meteorology_fire_danger_ratings() -> pd.DataFrame:
+    """
+    Scrapes the Bureau of Meteorology's (BOM) fire danger rating ratings, retuns a dataframe with
+    days of the week as the columns, and the fire weather districts as the rows.
+
+    Parameters
+    ----------
+    url : str
+        The URL of the BOM fire danger ratings page.
+    """
+    try:
+        # create an instance of the Environment class
+        env = Environment()
+
+        # create a list of environment variables with "SPC_FIRE_WX_OUTLOOK_DAY" in the name
+        bureau_of_meteorology_fire_danger_rating_urls = [
+            var for var in dir(env) if "AUSTRALIA_" in var
+        ]
+
+         # Create a session
+        session = Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+        })
+
+        fire_danger_australia = pd.DataFrame()
+
+        for fire_danger_url_config in bureau_of_meteorology_fire_danger_rating_urls:
+            # get the URL from the environment variable
+            fire_danger_url = getattr(env, fire_danger_url_config)
+
+            # get the webpage
+            page = session.get(fire_danger_url, timeout=300)
+
+            # show the status code of the page object
+            print(f"URL: {fire_danger_url_config} - Status Code: {page.status_code}")
+
+            # raise an exception if the request was unsuccessful
+            page.raise_for_status()
+
+            # read the html content
+            html_content = page.content
+
+            # parse the HTML content using BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            # find the table in the HTML content
+            table = soup.find('table')
+
+            # convert the table to a DataFrame
+            df = pd.read_html(StringIO(str(table)))[0]
+
+            # add the DataFrame to the fire_danger_australia
+            fire_danger_australia = pd.concat([fire_danger_australia, df])
+
+        # return the fire_danger_australia DataFrame
+        return fire_danger_australia
+
+    except Exception as e:
+        print(f"scrape_bureau_of_meteorology_fire_danger_ratings failed due to this error: {e}")
         raise

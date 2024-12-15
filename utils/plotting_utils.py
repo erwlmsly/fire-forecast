@@ -1,10 +1,11 @@
 # plotting utilities
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
+from cartopy.io.img_tiles import GoogleTiles
 from geopandas import GeoDataFrame
 from matplotlib.patches import Patch
 from shapely.geometry import shape
@@ -78,8 +79,14 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             'dry_lightning_gdf': GeoDataFrame.from_features(dry_lightning_geojson['features'], crs=4326) if dry_lightning_geojson['features'] else None
         }
 
+        #plot the stck images
+        tiler = GoogleTiles(style="street")
+
+        #add the tiles to the map
+        plot_section.add_image(tiler, 4)
+
         # plot coastlines
-        plot_section.coastlines()
+        #plot_section.coastlines()
 
         # create a states object
         states_provinces = cfeature.NaturalEarthFeature(
@@ -90,21 +97,23 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
         )
 
         # add statelines o plot
-        plot_section.add_feature(states_provinces, edgecolor='gray')
+        #plot_section.add_feature(states_provinces, edgecolor='gray')
 
         # add country borders to plot
-        plot_section.add_feature(cfeature.BORDERS, edgecolor='black')
+        #plot_section.add_feature(cfeature.BORDERS, edgecolor='black')
 
         # asuuming all layers are nonne
         all_layers_none = True
 
         # plot the layers in layers_to_plot
-        for layer_name, layer in layers_to_plot.items():
+        for _layer_name, layer in layers_to_plot.items():
             if layer is not None:
                 all_layers_none = False
                 for feature in layer.iterfeatures():
                     geom = shape(feature['geometry'])
                     dn = feature['properties'].get('dn', None)
+
+                    #conditional symbology based on den value
                     if dn == 5:
                         facecolor = 'orange'
                         edgecolor = 'darkorange'
@@ -117,6 +126,8 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
                     else:
                         facecolor = 'none'
                         edgecolor = 'black'
+
+                    # add the geometry to the plot
                     plot_section.add_geometries(
                         [geom],
                         ccrs.PlateCarree(),
@@ -126,11 +137,15 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
                         linewidth=2
                     )
 
+        # if there's no layers
         if all_layers_none:
-            # add a text annotation if there is no data
+            # add a text annotation
             plot_section.text(
                 0.5, 0.5, "Limited Fire Weather Concerns", ha='center', va='center', transform=plot_section.transAxes,
-                color='green', fontweight='bold', fontsize=12
+                color='green', fontweight='bold', fontsize=12, bbox={
+                    'facecolor': 'white',
+                    'edgecolor': 'green',
+                    'boxstyle': 'round,pad=0.5'}
             )
 
         # set the extent
@@ -138,9 +153,10 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
 
         # set the title
         # calculate the date for the current day
-        current_date = datetime.utcnow() + timedelta(days=int(day))
-        # format the date to include the day name and the date
-        formatted_date = current_date.strftime('%A %b %d')
+        current_date_utc = datetime.now(timezone.utc) + timedelta(days=int(day))
+
+        # format the date to include the day name and the date (e.g., Monday Jan 01)
+        formatted_date = current_date_utc.strftime('%A %b %d')
 
         # set the title
         plot_section.set_title(f"{formatted_date}")
@@ -153,7 +169,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
     ]
 
     # Add legend to the plot
-    fig.legend(handles=legend_handles, loc='lower center', ncol=3, bbox_to_anchor=(0.5, 0.45), frameon=False)
+    fig.legend(handles=legend_handles, loc='lower center', ncol=3, bbox_to_anchor=(0.5, -0.0), frameon=False)
 
     # set the overall figure title
     fig.suptitle("Storm Prediction Center Fire Weather Outlooks", fontsize=16, fontweight='bold')
@@ -162,15 +178,18 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
     plt.tight_layout()
 
      # Adjust space between subplots
-    plt.subplots_adjust(wspace=0.0001, hspace=0.1, top=0.9)
+    plt.subplots_adjust(wspace=0.001, hspace=0.1, top=0.9, bottom=0.05)
 
     fig.set_size_inches(12.8, 7.2)
 
     # create a datetime object for current utc ime and format it to YYYYMMDD_HHM format
-    current_utc_time_str = datetime.utcnow().strftime('%Y%m%d_%H%M')
+    current_date_utc_yyyymmdd_hhmm_str = current_date_utc.strftime('%Y%m%d_%H%M')
 
     # save the plot to the outputs folderS
-    plt.savefig(f'outputs\\fire_wx_outlook_spc_{current_utc_time_str}.png', dpi=300)
+    plt.savefig(f'outputs\\fire_wx_outlook_spc_{current_date_utc_yyyymmdd_hhmm_str}.png', dpi=300)
+
+    #print message that the polt was saved
+    print("Fire Weather Outlook maps completed and saved to outputs folder")
 
     #plt.show()
 
