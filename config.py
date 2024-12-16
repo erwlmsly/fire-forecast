@@ -46,3 +46,8 @@ class Environment(BaseSettings):
     AUSTRALIA_NORTHERN_TERRITORY_FIRE_DANGER_RATING_TABLE: str = (
         "http://www.bom.gov.au/nt/forecasts/fire-danger-ratings.shtml"
     )
+
+    # Australia fire weather districts
+    AUSTRALIA_FIRE_WEATHER_DISTRICTS: str = (
+        "https://services1.arcgis.com/vHnIGBHHqDR6y0CR/arcgis/rest/services/Fire_Districts_-_4_Day_Forecast/FeatureServer/5"
+    )
