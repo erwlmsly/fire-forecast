@@ -17,7 +17,7 @@ This repository contains a script that scrapes fire danger ratings from the Aust
 
 1. Clone the repository:
     ```sh
-    git clone https://github.com/yourusername/fire-forecast.git
+    git clone https://github.com/erwlmsly/fire-forecast.git
     cd fire-forecast
     ```
 
