@@ -108,18 +108,25 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             # add the tiles to the map
             plot_section.add_image(tiler, 4)
 
-            # asuming all layers are none
-            all_layers_none = True
+            # dn is what determines the color of the polygon, if they're all zero, then no fire weather concerns
+            all_dn_zero = True
 
             # plot the layers in layers_to_plot
             for layer in layers_to_plot.values():
                 if layer is not None:
-                    all_layers_none = False
                     for feature in layer.iterfeatures():
                         geom = shape(feature["geometry"])
                         dn = feature["properties"].get("dn", None)
 
-                        # conditional symbology based on den value
+                        if dn != 0:
+                            all_dn_zero = False
+
+                        # check for a fill value
+                        fill = feature["properties"].get("fill", None)
+                        if fill == " ":
+                            fill = "none"
+
+                        # conditional symbology based on dn value
                         if dn == 5:
                             facecolor = "orange"
                             edgecolor = "darkorange"
@@ -131,7 +138,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
                             edgecolor = "#4B0082"  # dark purple
                         else:
                             facecolor = "none"
-                            edgecolor = "black"
+                            edgecolor = fill
 
                         # add the geometry to the plot
                         plot_section.add_geometries(
@@ -144,7 +151,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
                         )
 
             # if there's no layers
-            if all_layers_none:
+            if all_dn_zero:
                 # add a text annotation
                 plot_section.text(
                     0.5,
