@@ -2,13 +2,16 @@
 
 from datetime import datetime, timedelta, timezone
 from json import loads
+from tempfile import NamedTemporaryFile
 from typing import Dict
 
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 from cartopy.io.img_tiles import GoogleTiles
 from geopandas import GeoDataFrame
+from matplotlib import font_manager as fm
 from matplotlib.patches import Patch
+from requests import get
 from shapely.geometry import shape
 
 
@@ -38,7 +41,46 @@ def _country_extent_coordinates(name: str) -> tuple:
         raise
 
 
-def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: dict):
+def _get_space_mono_font_from_github():
+    """
+    Downloads the Space Mono font from the google fonts GitHub repository and
+    stores it within a temp file which is then loaded into a FontProperties
+    object for use in plots
+
+    Returns: a matblotlib.font_manager.FontProperties object with the Space Mono
+        font
+    """
+    try:
+        # google fonts url
+        github_url = "https://github.com/google/fonts/blob/main/ofl/spacemono/SpaceMono-Regular.ttf"
+        url = github_url + "?raw=true"  # You want the actual file, not some html
+
+        # get the data from github
+        response = get(url, timeout=120)
+
+        # add the byte content into an object
+        font_bytes = response.content
+
+        # create a temporare file
+        f = NamedTemporaryFile(delete=False, suffix=".ttf")
+
+        # write the bytes to that file
+        f.write(font_bytes)
+
+        # close it so its deleted
+        f.close()
+
+        # create a font properties object for use in the plots
+        return fm.FontProperties(fname=f.name)
+    except Exception as e:
+        print(f"_get_font_font_from_github failed due to this error: {e}")
+        raise
+
+
+def plot_fire_weather_outlooks(
+    storm_prediction_center_fire_weather_outlooks: dict,
+    font: fm.FontProperties = _get_space_mono_font_from_github(),
+) -> None:
     """
     Plots the fire weather outlooks for the next 4 days. Returns a png file to the outputs folder.
 
@@ -161,7 +203,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
                     va="center",
                     transform=plot_section.transAxes,
                     color="green",
-                    fontweight="bold",
+                    fontproperties=font,
                     fontsize=12,
                     bbox={
                         "facecolor": "white",
@@ -181,7 +223,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             formatted_date = current_date_utc.strftime("%A %b %d")
 
             # set the title
-            plot_section.set_title(f"{formatted_date}")
+            plot_section.set_title(f"{formatted_date}", fontproperties=font)
 
         # Create custom legend handles
         legend_handles = [
@@ -197,6 +239,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             loc="upper right",
             ncol=1,
             bbox_to_anchor=(1.0, 0.91),
+            prop=font,
             # frameon=False,
         )
 
@@ -204,7 +247,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
         fig.suptitle(
             "Storm Prediction Center Fire Weather Outlooks",
             fontsize=16,
-            fontweight="bold",
+            fontproperties=font,
         )
 
         # create a new current date variable
@@ -219,6 +262,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             color="black",
             ha="left",
             va="bottom",
+            fontproperties=font,
         )
 
         # set a tight layout
@@ -249,7 +293,10 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
         raise
 
 
-def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> None:
+def plot_bom_fire_danger_ratings(
+    bom_fire_danger: Dict[str, GeoDataFrame],
+    font: fm.FontProperties = _get_space_mono_font_from_github(),
+) -> None:
     """
     Plots the next four days of the Australian Bureau of Meteorology fire danger
     ratings. Returns a png file to the outputs folder. Only rating areas with
@@ -364,7 +411,7 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
                     va="center",
                     transform=plot_section.transAxes,
                     color="green",
-                    fontweight="bold",
+                    fontproperties=font,
                     fontsize=12,
                     bbox={
                         "facecolor": "white",
@@ -390,7 +437,7 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
             title_date = date_for_title.strftime("%A %b %d")
 
             # set the title
-            plot_section.set_title(f"{title_date}")
+            plot_section.set_title(f"{title_date}", fontproperties=font)
 
         # Create custom legend handles
         legend_handles = [
@@ -406,12 +453,16 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
             loc="upper right",
             ncol=1,
             bbox_to_anchor=(0.99, 0.91),
+            prop=font,
             # frameon=False,
         )
 
         # set the overall figure title
         fig.suptitle(
-            "Bureau of Meteorology Fire Danger Ratings", fontsize=16, fontweight="bold"
+            "Bureau of Meteorology Fire Danger Ratings",
+            fontsize=16,
+            fontweight="bold",
+            fontproperties=font,
         )
 
         # add an issued date time test to the lower left corner
@@ -423,6 +474,7 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
             color="black",
             ha="left",
             va="bottom",
+            fontproperties=font,
         )
 
         # set a tight layout
