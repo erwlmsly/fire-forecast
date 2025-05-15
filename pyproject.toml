@@ -24,6 +24,7 @@ pandas-stubs = "^2.2.3.250308"
 types-beautifulsoup4 = "^4.12.0.20250204"
 httpx = "^0.28.1"
 types-shapely = "^2.0.0.20250202"
+html5lib = "^1.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.3.0"

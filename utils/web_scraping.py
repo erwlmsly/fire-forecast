@@ -214,8 +214,16 @@ def _get_fire_danger_data(client: Client, fire_danger_url: str) -> pd.DataFrame:
         # find the table
         table = soup.find("table")
 
-        # return the table as a DataFrame
-        return pd.read_html(StringIO(str(table)))[0]
+        if not table:
+            print(f"No table found on the page: {fire_danger_url}")
+            return pd.DataFrame()
+
+        # Parse the table into a DataFrame
+        try:
+            return pd.read_html(StringIO(str(table)))[0]
+        except ValueError as e:
+            print(f"Error parsing table from page: {fire_danger_url}. Error: {e}")
+            return pd.DataFrame()
 
     except Exception as e:
         print(f"_get_fire_danger_data failed due to this error: {e}")

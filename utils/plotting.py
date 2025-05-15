@@ -11,6 +11,7 @@ from cartopy.io.img_tiles import GoogleTiles
 from geopandas import GeoDataFrame
 from matplotlib import font_manager as fm
 from matplotlib.patches import Patch
+from pandas import to_numeric
 from requests import get
 from shapely.geometry import shape
 
@@ -240,7 +241,6 @@ def plot_fire_weather_outlooks(
             ncol=1,
             bbox_to_anchor=(1.0, 0.91),
             prop=font,
-            # frameon=False,
         )
 
         # set the overall figure title
@@ -319,7 +319,6 @@ def plot_bom_fire_danger_ratings(
             subplot_kw={
                 "projection": ccrs.LambertConformal(
                     central_longitude=135,
-                    # central_latitude=-25,
                     standard_parallels=(-50, 20),
                     cutoff=10,
                 )
@@ -346,7 +345,11 @@ def plot_bom_fire_danger_ratings(
                     rating_col = col
 
             # convert the index column to an integer
-            bom_fire_danger_gdf[index_col] = bom_fire_danger_gdf[index_col].astype(int)
+            bom_fire_danger_gdf[index_col] = (
+                to_numeric(bom_fire_danger_gdf[index_col], errors="coerce")
+                .fillna(0)
+                .astype(int)
+            )
 
             # filter the gdf to only include areas with a fire danger index greater than or equal to 41
             bom_fire_danger_gdf_high_extreme = bom_fire_danger_gdf[
@@ -427,9 +430,6 @@ def plot_bom_fire_danger_ratings(
             # calculate the date for the current day
             current_date_utc = datetime.now(timezone.utc)
 
-            # format the date to include the day name and the date (e.g., Monday Jan 01)
-            formatted_date = current_date_utc.strftime("%A %b %d")
-
             # date is a string, convert it to a datetime
             date_for_title = datetime.strptime(date, "%Y-%m-%d")
 
@@ -454,7 +454,6 @@ def plot_bom_fire_danger_ratings(
             ncol=1,
             bbox_to_anchor=(0.99, 0.91),
             prop=font,
-            # frameon=False,
         )
 
         # set the overall figure title
