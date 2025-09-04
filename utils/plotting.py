@@ -2,13 +2,17 @@
 
 from datetime import datetime, timedelta, timezone
 from json import loads
+from tempfile import NamedTemporaryFile
 from typing import Dict
 
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 from cartopy.io.img_tiles import GoogleTiles
 from geopandas import GeoDataFrame
+from matplotlib import font_manager as fm
 from matplotlib.patches import Patch
+from pandas import to_numeric
+from requests import get
 from shapely.geometry import shape
 
 
@@ -38,7 +42,46 @@ def _country_extent_coordinates(name: str) -> tuple:
         raise
 
 
-def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: dict):
+def _get_space_mono_font_from_github():
+    """
+    Downloads the Space Mono font from the google fonts GitHub repository and
+    stores it within a temp file which is then loaded into a FontProperties
+    object for use in plots
+
+    Returns: a matblotlib.font_manager.FontProperties object with the Space Mono
+        font
+    """
+    try:
+        # google fonts url
+        github_url = "https://github.com/google/fonts/blob/main/ofl/spacemono/SpaceMono-Regular.ttf"
+        url = github_url + "?raw=true"  # You want the actual file, not some html
+
+        # get the data from github
+        response = get(url, timeout=120)
+
+        # add the byte content into an object
+        font_bytes = response.content
+
+        # create a temporare file
+        f = NamedTemporaryFile(delete=False, suffix=".ttf")
+
+        # write the bytes to that file
+        f.write(font_bytes)
+
+        # close it so its deleted
+        f.close()
+
+        # create a font properties object for use in the plots
+        return fm.FontProperties(fname=f.name)
+    except Exception as e:
+        print(f"_get_font_font_from_github failed due to this error: {e}")
+        raise
+
+
+def plot_fire_weather_outlooks(
+    storm_prediction_center_fire_weather_outlooks: dict,
+    font: fm.FontProperties = _get_space_mono_font_from_github(),
+) -> None:
     """
     Plots the fire weather outlooks for the next 4 days. Returns a png file to the outputs folder.
 
@@ -83,6 +126,10 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             dry_lightning_geojson = storm_prediction_center_fire_weather_outlooks[day][
                 "dry_lightning_geojson"
             ]
+            
+            # Check if we have valid geometry data with actual risk using the new validation flags
+            has_fire_wx_geometry = storm_prediction_center_fire_weather_outlooks[day].get("has_fire_wx_geometry", False)
+            has_dry_lightning_geometry = storm_prediction_center_fire_weather_outlooks[day].get("has_dry_lightning_geometry", False)
 
             # initalize a dict for plotting layers
             layers_to_plot = {
@@ -90,14 +137,14 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
                     GeoDataFrame.from_features(
                         fire_wx_outlook_geojson["features"], crs=4326
                     )
-                    if fire_wx_outlook_geojson["features"]
+                    if has_fire_wx_geometry and fire_wx_outlook_geojson["features"]
                     else None
                 ),
                 "dry_lightning_gdf": (
                     GeoDataFrame.from_features(
                         dry_lightning_geojson["features"], crs=4326
                     )
-                    if dry_lightning_geojson["features"]
+                    if has_dry_lightning_geometry and dry_lightning_geojson["features"]
                     else None
                 ),
             }
@@ -108,30 +155,53 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             # add the tiles to the map
             plot_section.add_image(tiler, 4)
 
-            # asuming all layers are none
-            all_layers_none = True
+            # dn is what determines the color of the polygon, if they're all zero, then no fire weather concerns
+            all_dn_zero = True
+            has_any_geometry = False
 
             # plot the layers in layers_to_plot
             for layer in layers_to_plot.values():
                 if layer is not None:
-                    all_layers_none = False
+                    has_any_geometry = True
                     for feature in layer.iterfeatures():
                         geom = shape(feature["geometry"])
                         dn = feature["properties"].get("dn", None)
 
-                        # conditional symbology based on den value
-                        if dn == 5:
+                        if dn != 0:
+                            all_dn_zero = False
+
+                        # Skip plotting if dn is 0 (no risk)
+                        if dn == 0:
+                            continue
+
+                        # check for a fill value
+                        fill = feature["properties"].get("fill", None)
+                        if fill == " ":
+                            fill = "none"
+
+                        # Check if this is a dry lightning feature
+                        is_dry_lightning = "dryltg" in feature["properties"].get("idp_source", "").lower()
+                        
+                        # conditional symbology based on dn value and feature type
+                        if is_dry_lightning and dn == 5:
+                            # Dry lightning risk areas
+                            facecolor = "brown"
+                            edgecolor = "brown"
+                        elif dn == 5:
+                            # General fire weather elevated
                             facecolor = "orange"
                             edgecolor = "darkorange"
                         elif dn == 8:
+                            # Critical fire weather
                             facecolor = "red"
                             edgecolor = "darkred"
                         elif dn == 10:
+                            # Extreme fire weather
                             facecolor = "purple"
                             edgecolor = "#4B0082"  # dark purple
                         else:
                             facecolor = "none"
-                            edgecolor = "black"
+                            edgecolor = fill
 
                         # add the geometry to the plot
                         plot_section.add_geometries(
@@ -143,25 +213,48 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
                             linewidth=2,
                         )
 
-            # if there's no layers
-            if all_layers_none:
-                # add a text annotation
-                plot_section.text(
-                    0.5,
-                    0.5,
-                    "Limited Fire Weather Concerns",
-                    ha="center",
-                    va="center",
-                    transform=plot_section.transAxes,
-                    color="green",
-                    fontweight="bold",
-                    fontsize=12,
-                    bbox={
-                        "facecolor": "white",
-                        "edgecolor": "green",
-                        "boxstyle": "round,pad=0.5",
-                    },
-                )
+            # if there's no layers or all dn values are zero
+            if not has_any_geometry or all_dn_zero:
+                # Check if we have any valid data at all (either fire wx or dry lightning)
+                has_any_valid_data = has_fire_wx_geometry or has_dry_lightning_geometry
+                
+                if not has_any_valid_data:
+                    # add a text annotation for truly no data
+                    plot_section.text(
+                        0.5,
+                        0.5,
+                        "Limited Fire Weather Concerns",
+                        ha="center",
+                        va="center",
+                        transform=plot_section.transAxes,
+                        color="green",
+                        fontproperties=font,
+                        fontsize=12,
+                        bbox={
+                            "facecolor": "white",
+                            "edgecolor": "green",
+                            "boxstyle": "round,pad=0.5",
+                        },
+                    )
+                elif all_dn_zero:
+                    # We have geometry but all dn values are 0 (no risk areas)
+                    # Don't plot the geometries, just show the message
+                    plot_section.text(
+                        0.5,
+                        0.5,
+                        "Limited Fire Weather Concerns",
+                        ha="center",
+                        va="center",
+                        transform=plot_section.transAxes,
+                        color="green",
+                        fontproperties=font,
+                        fontsize=12,
+                        bbox={
+                            "facecolor": "white",
+                            "edgecolor": "green",
+                            "boxstyle": "round,pad=0.5",
+                        },
+                    )
 
             # set the extent
             plot_section.set_extent(_country_extent_coordinates("United States"))
@@ -174,30 +267,30 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             formatted_date = current_date_utc.strftime("%A %b %d")
 
             # set the title
-            plot_section.set_title(f"{formatted_date}")
+            plot_section.set_title(f"{formatted_date}", fontproperties=font)
 
         # Create custom legend handles
         legend_handles = [
             Patch(facecolor="orange", edgecolor="darkorange", label="Elevated"),
             Patch(facecolor="red", edgecolor="darkred", label="Critical"),
             Patch(facecolor="purple", edgecolor="#4B0082", label="Extreme"),
+            Patch(facecolor="brown", edgecolor="brown", label="Dry Lightning"),
         ]
 
         # Add legend to the plot
         fig.legend(
-            title="Fire Weather Outlook",
             handles=legend_handles,
             loc="upper right",
             ncol=1,
             bbox_to_anchor=(1.0, 0.91),
-            # frameon=False,
+            prop=font,
         )
 
         # set the overall figure title
         fig.suptitle(
             "Storm Prediction Center Fire Weather Outlooks",
             fontsize=16,
-            fontweight="bold",
+            fontproperties=font,
         )
 
         # create a new current date variable
@@ -212,6 +305,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
             color="black",
             ha="left",
             va="bottom",
+            fontproperties=font,
         )
 
         # set a tight layout
@@ -220,7 +314,7 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
         # Adjust space between subplots
         # Adjust space between subplots
         plt.subplots_adjust(
-            wspace=0.0001, hspace=0.125, top=0.9, bottom=0.05, right=0.9, left=0
+            wspace=-0.1, hspace=0.125, top=0.9, bottom=0.05, right=0.9, left=0
         )
 
         fig.set_size_inches(12.8, 7.2)
@@ -242,7 +336,10 @@ def plot_fire_weather_outlooks(storm_prediction_center_fire_weather_outlooks: di
         raise
 
 
-def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> None:
+def plot_bom_fire_danger_ratings(
+    bom_fire_danger: Dict[str, GeoDataFrame],
+    font: fm.FontProperties = _get_space_mono_font_from_github(),
+) -> None:
     """
     Plots the next four days of the Australian Bureau of Meteorology fire danger
     ratings. Returns a png file to the outputs folder. Only rating areas with
@@ -265,7 +362,6 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
             subplot_kw={
                 "projection": ccrs.LambertConformal(
                     central_longitude=135,
-                    # central_latitude=-25,
                     standard_parallels=(-50, 20),
                     cutoff=10,
                 )
@@ -292,7 +388,11 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
                     rating_col = col
 
             # convert the index column to an integer
-            bom_fire_danger_gdf[index_col] = bom_fire_danger_gdf[index_col].astype(int)
+            bom_fire_danger_gdf[index_col] = (
+                to_numeric(bom_fire_danger_gdf[index_col], errors="coerce")
+                .fillna(0)
+                .astype(int)
+            )
 
             # filter the gdf to only include areas with a fire danger index greater than or equal to 41
             bom_fire_danger_gdf_high_extreme = bom_fire_danger_gdf[
@@ -357,7 +457,7 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
                     va="center",
                     transform=plot_section.transAxes,
                     color="green",
-                    fontweight="bold",
+                    fontproperties=font,
                     fontsize=12,
                     bbox={
                         "facecolor": "white",
@@ -373,9 +473,6 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
             # calculate the date for the current day
             current_date_utc = datetime.now(timezone.utc)
 
-            # format the date to include the day name and the date (e.g., Monday Jan 01)
-            formatted_date = current_date_utc.strftime("%A %b %d")
-
             # date is a string, convert it to a datetime
             date_for_title = datetime.strptime(date, "%Y-%m-%d")
 
@@ -383,7 +480,7 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
             title_date = date_for_title.strftime("%A %b %d")
 
             # set the title
-            plot_section.set_title(f"{title_date}")
+            plot_section.set_title(f"{title_date}", fontproperties=font)
 
         # Create custom legend handles
         legend_handles = [
@@ -394,17 +491,19 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
 
         # Add legend to the plot
         fig.legend(
-            title="Fire Danger",
             handles=legend_handles,
             loc="upper right",
             ncol=1,
             bbox_to_anchor=(0.99, 0.91),
-            # frameon=False,
+            prop=font,
         )
 
         # set the overall figure title
         fig.suptitle(
-            "Bureau of Meteorology Fire Danger Ratings", fontsize=16, fontweight="bold"
+            "Bureau of Meteorology Fire Danger Ratings",
+            fontsize=16,
+            fontweight="bold",
+            fontproperties=font,
         )
 
         # add an issued date time test to the lower left corner
@@ -416,6 +515,7 @@ def plot_bom_fire_danger_ratings(bom_fire_danger: Dict[str, GeoDataFrame]) -> No
             color="black",
             ha="left",
             va="bottom",
+            fontproperties=font,
         )
 
         # set a tight layout

@@ -2,15 +2,15 @@ from utils.file_mgmt import create_outputs_folder
 from utils.plotting import plot_bom_fire_danger_ratings, plot_fire_weather_outlooks
 from utils.processing import (
     convert_fire_danger_gdf_to_dict_for_plotting,
-    merge_fire_weather_districts_and_fire_danger_table,
     is_extreme_or_catastrophic_in_bom_fire_danger_ratings,
+    merge_fire_weather_districts_and_fire_danger_table,
 )
 from utils.web_scraping import (
     get_storm_prediction_center_fire_weather_outlooks,
     scrape_bureau_of_meteorology_fire_danger_ratings,
 )
 
-from pickle import dump, load
+# from pickle import dump, load
 
 
 def main():

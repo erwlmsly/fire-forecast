@@ -51,6 +51,34 @@ def _get_arcgis_web_feature_service_geojson_dict(
         raise
 
 
+def _has_valid_geometry_and_risk(geojson_data: dict) -> bool:
+    """
+    Check if GeoJSON data contains valid geometry features with actual risk (dn != 0).
+    
+    Parameters
+    ----------
+    geojson_data : dict
+        GeoJSON data dictionary
+        
+    Returns
+    -------
+    bool
+        True if there are features with valid geometry AND dn != 0, False otherwise
+    """
+    if not geojson_data or "features" not in geojson_data:
+        return False
+    
+    for feature in geojson_data["features"]:
+        # Check if feature has valid geometry
+        if feature.get("geometry") is not None:
+            # Check if feature has actual risk (dn != 0)
+            dn = feature.get("properties", {}).get("dn", None)
+            if dn is not None and dn != 0:
+                return True
+    
+    return False
+
+
 def get_storm_prediction_center_fire_weather_outlooks() -> dict:
     """
     Returns a dictionary of GeoJSON data from the Storm Prediction Center (SPC)
@@ -97,11 +125,49 @@ def get_storm_prediction_center_fire_weather_outlooks() -> dict:
                 day_dict["dry_lightning_url"], url_params=None
             )
 
+            # Check if we have valid geometry data with actual risk
+            has_fire_wx_geometry = _has_valid_geometry_and_risk(fire_wx_outlook_geojson)
+            has_dry_lightning_geometry = _has_valid_geometry_and_risk(dry_lightning_geojson)
+            
+            # Log the status for this day
+            day_name = f"Day {counter + 1}"
+            if has_fire_wx_geometry and has_dry_lightning_geometry:
+                print(f"  {day_name}: Both fire weather outlooks and dry lightning risk areas found")
+            elif has_fire_wx_geometry:
+                print(f"  {day_name}: Fire weather outlooks found (no dry lightning risk)")
+            elif has_dry_lightning_geometry:
+                print(f"  {day_name}: Dry lightning risk areas found (no general fire weather outlooks)")
+            else:
+                print(f"  {day_name}: No active fire weather outlooks (no elevated fire weather conditions)")
+
             # add the GeoJSON data to the dictionary
             out_dict[counter] = {
                 "fire_wx_outlook_geojson": fire_wx_outlook_geojson,
                 "dry_lightning_geojson": dry_lightning_geojson,
+                "has_fire_wx_geometry": has_fire_wx_geometry,
+                "has_dry_lightning_geometry": has_dry_lightning_geometry,
             }
+
+        # Check if any days have active outlooks
+        has_any_outlooks = any(
+            out_dict[day]["has_fire_wx_geometry"] or out_dict[day]["has_dry_lightning_geometry"]
+            for day in out_dict
+        )
+        
+        if not has_any_outlooks:
+            print("  No active fire weather outlooks found for any forecast day.")
+            print("  This is normal when there are no elevated fire weather conditions expected.")
+        else:
+            # Count the types of outlooks found
+            fire_wx_days = sum(1 for day in out_dict if out_dict[day]["has_fire_wx_geometry"])
+            dry_lightning_days = sum(1 for day in out_dict if out_dict[day]["has_dry_lightning_geometry"])
+            
+            if fire_wx_days > 0 and dry_lightning_days > 0:
+                print(f"  Summary: {fire_wx_days} day(s) with fire weather outlooks, {dry_lightning_days} day(s) with dry lightning risk")
+            elif fire_wx_days > 0:
+                print(f"  Summary: {fire_wx_days} day(s) with fire weather outlooks found")
+            elif dry_lightning_days > 0:
+                print(f"  Summary: {dry_lightning_days} day(s) with dry lightning risk areas found")
 
         # return the dictionary
         return out_dict
@@ -214,8 +280,16 @@ def _get_fire_danger_data(client: Client, fire_danger_url: str) -> pd.DataFrame:
         # find the table
         table = soup.find("table")
 
-        # return the table as a DataFrame
-        return pd.read_html(StringIO(str(table)))[0]
+        if not table:
+            print(f"No table found on the page: {fire_danger_url}")
+            return pd.DataFrame()
+
+        # Parse the table into a DataFrame
+        try:
+            return pd.read_html(StringIO(str(table)))[0]
+        except ValueError as e:
+            print(f"Error parsing table from page: {fire_danger_url}. Error: {e}")
+            return pd.DataFrame()
 
     except Exception as e:
         print(f"_get_fire_danger_data failed due to this error: {e}")
