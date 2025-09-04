@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fire-forecast"
-version = "0.1.0"
+version = "0.2.0"
 description = "A script to scrape the australian bom's site for fire danger ratings, and the storm prediction center's fire weather outlook and generate maps"
 authors = ["erwlmsly <135661844+erwlmsly@users.noreply.github.com>"]
 readme = "README.md"

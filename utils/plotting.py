@@ -126,6 +126,10 @@ def plot_fire_weather_outlooks(
             dry_lightning_geojson = storm_prediction_center_fire_weather_outlooks[day][
                 "dry_lightning_geojson"
             ]
+            
+            # Check if we have valid geometry data with actual risk using the new validation flags
+            has_fire_wx_geometry = storm_prediction_center_fire_weather_outlooks[day].get("has_fire_wx_geometry", False)
+            has_dry_lightning_geometry = storm_prediction_center_fire_weather_outlooks[day].get("has_dry_lightning_geometry", False)
 
             # initalize a dict for plotting layers
             layers_to_plot = {
@@ -133,14 +137,14 @@ def plot_fire_weather_outlooks(
                     GeoDataFrame.from_features(
                         fire_wx_outlook_geojson["features"], crs=4326
                     )
-                    if fire_wx_outlook_geojson["features"]
+                    if has_fire_wx_geometry and fire_wx_outlook_geojson["features"]
                     else None
                 ),
                 "dry_lightning_gdf": (
                     GeoDataFrame.from_features(
                         dry_lightning_geojson["features"], crs=4326
                     )
-                    if dry_lightning_geojson["features"]
+                    if has_dry_lightning_geometry and dry_lightning_geojson["features"]
                     else None
                 ),
             }
@@ -153,10 +157,12 @@ def plot_fire_weather_outlooks(
 
             # dn is what determines the color of the polygon, if they're all zero, then no fire weather concerns
             all_dn_zero = True
+            has_any_geometry = False
 
             # plot the layers in layers_to_plot
             for layer in layers_to_plot.values():
                 if layer is not None:
+                    has_any_geometry = True
                     for feature in layer.iterfeatures():
                         geom = shape(feature["geometry"])
                         dn = feature["properties"].get("dn", None)
@@ -164,19 +170,33 @@ def plot_fire_weather_outlooks(
                         if dn != 0:
                             all_dn_zero = False
 
+                        # Skip plotting if dn is 0 (no risk)
+                        if dn == 0:
+                            continue
+
                         # check for a fill value
                         fill = feature["properties"].get("fill", None)
                         if fill == " ":
                             fill = "none"
 
-                        # conditional symbology based on dn value
-                        if dn == 5:
+                        # Check if this is a dry lightning feature
+                        is_dry_lightning = "dryltg" in feature["properties"].get("idp_source", "").lower()
+                        
+                        # conditional symbology based on dn value and feature type
+                        if is_dry_lightning and dn == 5:
+                            # Dry lightning risk areas
+                            facecolor = "brown"
+                            edgecolor = "brown"
+                        elif dn == 5:
+                            # General fire weather elevated
                             facecolor = "orange"
                             edgecolor = "darkorange"
                         elif dn == 8:
+                            # Critical fire weather
                             facecolor = "red"
                             edgecolor = "darkred"
                         elif dn == 10:
+                            # Extreme fire weather
                             facecolor = "purple"
                             edgecolor = "#4B0082"  # dark purple
                         else:
@@ -193,25 +213,48 @@ def plot_fire_weather_outlooks(
                             linewidth=2,
                         )
 
-            # if there's no layers
-            if all_dn_zero:
-                # add a text annotation
-                plot_section.text(
-                    0.5,
-                    0.5,
-                    "Limited Fire Weather Concerns",
-                    ha="center",
-                    va="center",
-                    transform=plot_section.transAxes,
-                    color="green",
-                    fontproperties=font,
-                    fontsize=12,
-                    bbox={
-                        "facecolor": "white",
-                        "edgecolor": "green",
-                        "boxstyle": "round,pad=0.5",
-                    },
-                )
+            # if there's no layers or all dn values are zero
+            if not has_any_geometry or all_dn_zero:
+                # Check if we have any valid data at all (either fire wx or dry lightning)
+                has_any_valid_data = has_fire_wx_geometry or has_dry_lightning_geometry
+                
+                if not has_any_valid_data:
+                    # add a text annotation for truly no data
+                    plot_section.text(
+                        0.5,
+                        0.5,
+                        "Limited Fire Weather Concerns",
+                        ha="center",
+                        va="center",
+                        transform=plot_section.transAxes,
+                        color="green",
+                        fontproperties=font,
+                        fontsize=12,
+                        bbox={
+                            "facecolor": "white",
+                            "edgecolor": "green",
+                            "boxstyle": "round,pad=0.5",
+                        },
+                    )
+                elif all_dn_zero:
+                    # We have geometry but all dn values are 0 (no risk areas)
+                    # Don't plot the geometries, just show the message
+                    plot_section.text(
+                        0.5,
+                        0.5,
+                        "Limited Fire Weather Concerns",
+                        ha="center",
+                        va="center",
+                        transform=plot_section.transAxes,
+                        color="green",
+                        fontproperties=font,
+                        fontsize=12,
+                        bbox={
+                            "facecolor": "white",
+                            "edgecolor": "green",
+                            "boxstyle": "round,pad=0.5",
+                        },
+                    )
 
             # set the extent
             plot_section.set_extent(_country_extent_coordinates("United States"))
@@ -231,11 +274,11 @@ def plot_fire_weather_outlooks(
             Patch(facecolor="orange", edgecolor="darkorange", label="Elevated"),
             Patch(facecolor="red", edgecolor="darkred", label="Critical"),
             Patch(facecolor="purple", edgecolor="#4B0082", label="Extreme"),
+            Patch(facecolor="brown", edgecolor="brown", label="Dry Lightning"),
         ]
 
         # Add legend to the plot
         fig.legend(
-            title="Fire Weather Outlook",
             handles=legend_handles,
             loc="upper right",
             ncol=1,
@@ -271,7 +314,7 @@ def plot_fire_weather_outlooks(
         # Adjust space between subplots
         # Adjust space between subplots
         plt.subplots_adjust(
-            wspace=0.0001, hspace=0.125, top=0.9, bottom=0.05, right=0.9, left=0
+            wspace=-0.1, hspace=0.125, top=0.9, bottom=0.05, right=0.9, left=0
         )
 
         fig.set_size_inches(12.8, 7.2)
@@ -448,7 +491,6 @@ def plot_bom_fire_danger_ratings(
 
         # Add legend to the plot
         fig.legend(
-            title="Fire Danger",
             handles=legend_handles,
             loc="upper right",
             ncol=1,
