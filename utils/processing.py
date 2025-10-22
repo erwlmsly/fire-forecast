@@ -1,3 +1,4 @@
+from datetime import datetime
 from json import loads
 
 from geopandas import GeoDataFrame
@@ -5,7 +6,7 @@ from pandas import DataFrame
 
 from config import Environment
 
-from .web_scraping import _get_arcgis_web_feature_service_geojson_dict
+from utils.web_scraping import _get_arcgis_web_feature_service_geojson_dict
 
 
 def merge_fire_weather_districts_and_fire_danger_table(
@@ -29,7 +30,7 @@ def merge_fire_weather_districts_and_fire_danger_table(
 
         # get the fire weather districts GeoJson
         fire_weather_districts = _get_arcgis_web_feature_service_geojson_dict(
-            url=env.AUSTRALIA_FIRE_WEATHER_DISTRICTS, url_params=None
+            url=env.AUSTRALIA_FIRE_DANGER_RATINGS, url_params=None
         )
 
         # Convert the GeoJSON to a GeoDataFrame
@@ -107,48 +108,52 @@ def convert_fire_danger_gdf_to_dict_for_plotting(
 ) -> dict:
     """
     Converts a GeoDataFrame of fire danger ratings to a dictionary for plotting.
+    Groups features by Forecast_Period and uses Start_Time_UTC_str attribute to
+    determine dates.
 
     Parameters
     ----------
     fire_danger_gdf : GeoDataFrame
-        A GeoDataFrame of fire danger ratings with the columns that have the day
-        names (monday, tuesday, etc)
+        A GeoDataFrame of fire weather districts with their geometries and attributes
     """
     try:
-        # Extract unique dates from the column names
-        unique_dates = {
-            col.split("_")[0] for col in fire_danger_gdf.columns if "_" in col
-        }
-
-        # Initialize an empty dictionary to store the fire danger ratings for each date
+        # Create dictionary to store forecast data by date
         fire_danger_dict = {}
+        
+        # Get unique forecast periods
+        if 'Forecast_Period' in fire_danger_gdf.columns:
 
-        # Loop through the unique dates
-        for date in unique_dates:
-            # Check if the columns for the date exist in the original DataFrame
+            #isolate the unique forecast periods
+            unique_forecast_periods = sorted(fire_danger_gdf['Forecast_Period'].unique())
 
-            # create a list of columns which contain the date
-            columns = [col for col in fire_danger_gdf.columns if date in col]
+            print(f"  Found forecast periods: {unique_forecast_periods}")
+            
+            for period in unique_forecast_periods:
+                # Filter for this forecast period
+                period_gdf = fire_danger_gdf[fire_danger_gdf['Forecast_Period'] == period]
+                
+                # if the period_gdf is not empty
+                if len(period_gdf) > 0:
+                    # Get the Start_Time_UTC_str from the first feature
+                    start_time_str = period_gdf.iloc[0]['Start_Time_UTC_str']
+                    
+                    # Extract date from Start_Time_UTC_str (format: 2025-10-22T13:00:00Z)
+                    if start_time_str:
+                        # Extract just the date part (before the 'T')
+                        date_str = start_time_str.split('T')[0]
+                        
+                        # Add this period's data to the dictionary
+                        fire_danger_dict[date_str] = period_gdf.to_json()
+                    else:
+                        print(f"  Warning: No Start_Time_UTC_str found for period {period}")
+        else:
+            print("  Warning: No Forecast_Period column found, using current date")
+            # Fallback to current date if no Forecast_Period column
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            fire_danger_dict[current_date] = fire_danger_gdf.to_json()
 
-            # create a list of columns to keep
-            columns_to_keep = ["geometry", "District", "state", *columns]
-
-            # create a new DataFrame with the columns to keep
-            date_df = fire_danger_gdf[columns_to_keep].copy()
-
-            date_df_json = date_df.to_json()
-
-            # Store the new DataFrame in the dictionary
-            fire_danger_dict[date] = date_df_json
-
-        # Get the keys of the dictionary
-        date_keys = list(fire_danger_dict.keys())
-
-        # sort the date_keys list
-        date_keys.sort()
-
-        # Create a new dictionary with the sorted date keys
-        return {key: fire_danger_dict[key] for key in date_keys}
+        print(f"  Created dictionary with {len(fire_danger_dict)} date entries")
+        return fire_danger_dict
 
     except Exception as e:
         print(

@@ -337,28 +337,26 @@ def plot_fire_weather_outlooks(
 
 
 def plot_bom_fire_danger_ratings(
-    bom_fire_danger: Dict[str, GeoDataFrame],
+    bom_fire_danger: Dict[str, str],
     font: fm.FontProperties = _get_space_mono_font_from_github(),
 ) -> None:
     """
-    Plots the next four days of the Australian Bureau of Meteorology fire danger
-    ratings. Returns a png file to the outputs folder. Only rating areas with
-    a fire danger index greater than or equal to 41 are plotted.
+    Plots the Australian fire weather districts. Returns a png file to the outputs folder.
 
     Parameters
     ----------
-    bom_fire_danger_gdf: GeoDataFrame
-        A GeoDataFrame containing the fire danger ratings for the next 4 days.
+    bom_fire_danger: Dict[str, str]
+        A dictionary containing the fire weather districts data as JSON strings.
     """
     try:
         # print message to screen
-        print("Plotting Bureau of Meteorology Fire Danger Ratings")
+        print("Plotting Australian Fire Weather Districts")
 
         # Create a figure with 4 subplots
         fig, axs = plt.subplots(
             2,
             2,
-            figsize=(7, 10),
+            figsize=(12, 8),
             subplot_kw={
                 "projection": ccrs.LambertConformal(
                     central_longitude=135,
@@ -371,42 +369,34 @@ def plot_bom_fire_danger_ratings(
         # each the four maps {row, col}
         plot_sections = [axs[0, 0], axs[0, 1], axs[1, 0], axs[1, 1]]
 
-        for date, plot_section in zip(bom_fire_danger, plot_sections, strict=False):
-            # isolate the gdf for the current date
-            bom_fire_danger_date = loads(bom_fire_danger[date])
+        for i, (date, plot_section) in enumerate(zip(bom_fire_danger, plot_sections, strict=False)):
+            # Get the fire weather districts data for this date
+            fire_weather_districts_data = loads(bom_fire_danger[date])
 
             # convert the geojson to a geodataframe
-            bom_fire_danger_gdf = GeoDataFrame.from_features(
-                bom_fire_danger_date["features"], crs=4326
+            fire_weather_districts_gdf = GeoDataFrame.from_features(
+                fire_weather_districts_data["features"], crs=4326
             )
 
-            # identify the column with _index at the end
-            for col in bom_fire_danger_gdf.columns:
-                if col.endswith("_index"):
-                    index_col = col
-                if col.endswith("_rating"):
-                    rating_col = col
-
-            # convert the index column to an integer
-            bom_fire_danger_gdf[index_col] = (
-                to_numeric(bom_fire_danger_gdf[index_col], errors="coerce")
-                .fillna(0)
-                .astype(int)
-            )
-
-            # filter the gdf to only include areas with a fire danger index greater than or equal to 41
-            bom_fire_danger_gdf_high_extreme = bom_fire_danger_gdf[
-                bom_fire_danger_gdf[index_col] >= 41
-            ]
-
-            # create a dictionary of layers to plot
-            layers_to_plot = {
-                "bom_fire_danger_above_40": (
-                    bom_fire_danger_gdf_high_extreme
-                    if len(bom_fire_danger_gdf_high_extreme)
-                    else None
-                )
-            }
+            # Filter for districts with Forecast_Period = (i+1) AND FireBehavIndex >= 41
+            forecast_period = i + 1  # 1, 2, 3, 4 for the 4 maps
+            
+            if 'FireBehavIndex' in fire_weather_districts_gdf.columns and 'Forecast_Period' in fire_weather_districts_gdf.columns:
+                # Filter for districts with specific forecast period and fire behavior index >= 41
+                period_filter = fire_weather_districts_gdf['Forecast_Period'] == forecast_period
+                index_filter = fire_weather_districts_gdf['FireBehavIndex'] >= 41
+                
+                high_risk_districts = fire_weather_districts_gdf[
+                    period_filter & index_filter
+                ]
+            elif 'FireBehavIndex' in fire_weather_districts_gdf.columns:
+                # If no Forecast_Period column, just filter by FireBehavIndex
+                high_risk_districts = fire_weather_districts_gdf[
+                    fire_weather_districts_gdf['FireBehavIndex'] >= 41
+                ]
+            else:
+                # If neither column found, show all districts
+                high_risk_districts = fire_weather_districts_gdf
 
             # retrieve the google street tiles
             tiler = GoogleTiles(style="street")
@@ -414,41 +404,43 @@ def plot_bom_fire_danger_ratings(
             # add the tiles to the plot
             plot_section.add_image(tiler, 4)
 
-            # asuming all layers are none
-            all_layers_none = True
+            # Print debug info about filtering results
+            print(f"  Forecast Period {forecast_period}: Found {len(high_risk_districts)} districts with FireBehavIndex >= 41")
 
-            # plot the layers in layers_to_plot
-            for layer in layers_to_plot.values():
-                if layer is not None:
-                    all_layers_none = False
-                    for feature in layer.iterfeatures():
-                        geom = shape(feature["geometry"])
-                        rating = feature["properties"].get(rating_col, None)
+            # Plot districts with high fire danger ratings
+            if len(high_risk_districts) > 0:
+                for feature in high_risk_districts.iterfeatures():
+                    geom = shape(feature["geometry"])
+                    
+                    # Use color scheme based on FireDanger rating
+                    fire_danger = feature["properties"].get("FireDanger", "")
+                    fire_behav_index = feature["properties"].get("FireBehavIndex", 0)
+                    
+                    # Fallback to index-based coloring
+                    if fire_behav_index >= 100:
+                        facecolor = "red"
+                        edgecolor = "darkred"
+                    elif fire_behav_index >= 50:
+                        facecolor = "orange"
+                        edgecolor = "darkorange"
+                    elif fire_behav_index >= 24:
+                        facecolor = "yellow"
+                        edgecolor = "#CCCC00"
+                    else:
+                        facecolor = "lightblue"
+                        edgecolor = "darkblue"
 
-                        # conditional symbology based on den value
-                        if rating == "High":
-                            facecolor = "yellow"
-                            edgecolor = "#CCCC00"  # dark yellow
-                        elif rating == "Extreme":
-                            facecolor = "orange"
-                            edgecolor = "darkorange"
-                        else:
-                            facecolor = "red"
-                            edgecolor = "darkred"
-
-                        # add the geometry to the plot
-                        plot_section.add_geometries(
-                            [geom],
-                            ccrs.PlateCarree(),
-                            facecolor=facecolor,
-                            edgecolor=edgecolor,
-                            alpha=0.5,
-                            linewidth=2,
-                        )
-
-            # if there's no layers
-            if all_layers_none:
-                # add a text annotation
+                    # add the geometry to the plot
+                    plot_section.add_geometries(
+                        [geom],
+                        ccrs.PlateCarree(),
+                        facecolor=facecolor,
+                        edgecolor=edgecolor,
+                        alpha=0.5,
+                        linewidth=2,
+                    )
+            else:
+                # If no high risk districts, show message
                 plot_section.text(
                     0.5,
                     0.5,
@@ -506,7 +498,8 @@ def plot_bom_fire_danger_ratings(
             fontproperties=font,
         )
 
-        # add an issued date time test to the lower left corner
+        # add an issued date time text to the lower left corner
+        current_date_utc = datetime.now(timezone.utc)
         fig.text(
             0.01,
             0.01,
@@ -528,17 +521,17 @@ def plot_bom_fire_danger_ratings(
 
         fig.set_size_inches(12.8, 7.2)
 
-        # create a datetime object for current utc ime and format it to YYYYMMDD_HHM format
+        # create a datetime object for current utc time and format it to YYYYMMDD format
         current_date_utc_yyyymmdd_str = current_date_utc.strftime("%Y%m%d")
 
-        # save the plot to the outputs folderS
+        # save the plot to the outputs folder
         plt.savefig(
             f"outputs\\fire_wx_outlook_bom_{current_date_utc_yyyymmdd_str}.png",
             dpi=300,
         )
 
-        # print message that the polt was saved
-        print("Fire Weather Outlook maps completed and saved to outputs folder")
+        # print message that the plot was saved
+        print("Fire Weather Districts map completed and saved to outputs folder")
 
     except Exception as e:
         print(f"plot_bom_fire_danger_ratings failed due to this error:\n{e}")

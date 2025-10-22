@@ -24,30 +24,7 @@ class Environment(BaseSettings):
         "dry_lightning_url": "https://mapservices.weather.noaa.gov/vector/rest/services/fire_weather/SPC_firewx/MapServer/11",
     }
 
-    # Australia fire danger rating tables
-    AUSTRALIA_NEW_SOUTH_WALES_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/nsw/forecasts/fire-danger-ratings.shtml"
-    )
-    AUSTRALIA_VICTORIA_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/vic/forecasts/fire-danger-ratings.shtml"
-    )
-    AUSTRALIA_QUEENSLAND_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/qld/forecasts/fire-danger-ratings.shtml"
-    )
-    AUSTRALIA_WESTERN_AUSTRALIA_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/wa/forecasts/fire-danger-ratings.shtml"
-    )
-    AUSTRALIA_SOUTH_AUSTRALIA_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/sa/forecasts/fire-danger-ratings.shtml"
-    )
-    AUSTRALIA_TASMANIA_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/tas/forecasts/fire-danger-ratings.shtml"
-    )
-    AUSTRALIA_NORTHERN_TERRITORY_FIRE_DANGER_RATING_TABLE: str = (
-        "http://www.bom.gov.au/nt/forecasts/fire-danger-ratings.shtml"
-    )
-
-    # Australia fire weather districts
-    AUSTRALIA_FIRE_WEATHER_DISTRICTS: str = (
+    # Australia fire danger ratings
+    AUSTRALIA_FIRE_DANGER_RATINGS: str = (
         "https://services1.arcgis.com/vHnIGBHHqDR6y0CR/arcgis/rest/services/Fire_Districts_-_4_Day_Forecast/FeatureServer/5"
     )
