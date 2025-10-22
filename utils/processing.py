@@ -123,7 +123,7 @@ def convert_fire_danger_gdf_to_dict_for_plotting(
         # Get unique forecast periods
         if 'Forecast_Period' in fire_danger_gdf.columns:
 
-            #isolate the unique forecast periods
+            # isolate the unique forecast periods
             unique_forecast_periods = sorted(fire_danger_gdf['Forecast_Period'].unique())
 
             print(f"  Found forecast periods: {unique_forecast_periods}")
