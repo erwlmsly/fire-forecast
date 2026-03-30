@@ -159,10 +159,11 @@ def plot_fire_weather_outlooks(
             all_dn_zero = True
             has_any_geometry = False
 
-            # plot the layers in layers_to_plot
-            for layer in layers_to_plot.values():
+            # plot the layers in layers_to_plot (layer key tells service semantics)
+            for layer_key, layer in layers_to_plot.items():
                 if layer is not None:
                     has_any_geometry = True
+                    is_dry_lightning_layer = layer_key == "dry_lightning_gdf"
                     for feature in layer.iterfeatures():
                         geom = shape(feature["geometry"])
                         dn = feature["properties"].get("dn", None)
@@ -179,16 +180,19 @@ def plot_fire_weather_outlooks(
                         if fill == " ":
                             fill = "none"
 
-                        # Check if this is a dry lightning feature
-                        is_dry_lightning = "dryltg" in feature["properties"].get("idp_source", "").lower()
-                        
-                        # conditional symbology based on dn value and feature type
-                        if is_dry_lightning and dn == 5:
-                            # Dry lightning risk areas
+                        idp = feature["properties"].get("idp_source", "").lower()
+                        is_dry_lightning_attr = (
+                            "dryltg" in idp
+                            or "drytprob" in idp
+                        )
+
+                        # Dry-thunder layers (days 3–4) use dn codes that overlap
+                        # with day 1–2 fire wx; classify by layer or idp_source.
+                        if is_dry_lightning_layer or is_dry_lightning_attr:
                             facecolor = "brown"
                             edgecolor = "brown"
                         elif dn == 5:
-                            # General fire weather elevated
+                            # General fire weather elevated (day 1–2 outlook)
                             facecolor = "orange"
                             edgecolor = "darkorange"
                         elif dn == 8:
@@ -196,9 +200,17 @@ def plot_fire_weather_outlooks(
                             facecolor = "red"
                             edgecolor = "darkred"
                         elif dn == 10:
-                            # Extreme fire weather
+                            # Extreme fire weather (day 1–2 outlook only here)
                             facecolor = "purple"
                             edgecolor = "#4B0082"  # dark purple
+                        elif dn == 40:
+                            # Day 3–4 winds / low RH elevated (SPC windrhprob)
+                            facecolor = "orange"
+                            edgecolor = "darkorange"
+                        elif dn == 70:
+                            # Day 3–4 winds / low RH critical
+                            facecolor = "red"
+                            edgecolor = "darkred"
                         else:
                             facecolor = "none"
                             edgecolor = fill
@@ -461,14 +473,9 @@ def plot_bom_fire_danger_ratings(
             # set the extent
             plot_section.set_extent(_country_extent_coordinates("Australia"))
 
-            # set the title
-            # calculate the date for the current day
-            current_date_utc = datetime.now(timezone.utc)
-
-            # date is a string, convert it to a datetime
-            date_for_title = datetime.strptime(date, "%Y-%m-%d")
-
-            # format the date to include the day name and the date (e.g., Monday Jan 01)
+            # set the title — BOM period start (UTC date key) is one day behind the
+            # forecast calendar day shown to users; shift +1 for subplot labels
+            date_for_title = datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)
             title_date = date_for_title.strftime("%A %b %d")
 
             # set the title
