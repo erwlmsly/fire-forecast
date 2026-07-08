@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 from cartopy.io.img_tiles import GoogleTiles
 from geopandas import GeoDataFrame
 from matplotlib import font_manager as fm
-from matplotlib.patches import Patch
+from matplotlib.patches import FancyBboxPatch, Patch
+from matplotlib.path import Path as MplPath
 from pandas import to_numeric
 from requests import get
 from shapely.geometry import shape
@@ -27,7 +28,12 @@ def _country_extent_coordinates(name: str) -> tuple:
     """
     try:
         coords = {
-            "Australia": (105.338953078, 161.569469029, -42.0345972634, -8.5681857235),
+            "Australia": (
+                105.338953078,
+                161.569469029,
+                -42.0345972634,
+                -8.5681857235,
+            ),
             "United States": (
                 -122.00601061058944,
                 -71.73406869478453,
@@ -52,35 +58,152 @@ def _get_space_mono_font_from_github():
         font
     """
     try:
-        # google fonts url
         github_url = "https://github.com/google/fonts/blob/main/ofl/spacemono/SpaceMono-Regular.ttf"
-        url = github_url + "?raw=true"  # You want the actual file, not some html
+        url = github_url + "?raw=true"
 
-        # get the data from github
         response = get(url, timeout=120)
-
-        # add the byte content into an object
         font_bytes = response.content
 
-        # create a temporare file
         f = NamedTemporaryFile(delete=False, suffix=".ttf")
-
-        # write the bytes to that file
         f.write(font_bytes)
-
-        # close it so its deleted
         f.close()
 
-        # create a font properties object for use in the plots
         return fm.FontProperties(fname=f.name)
     except Exception as e:
-        print(f"_get_font_font_from_github failed due to this error: {e}")
-        raise
+        print(
+            f"_get_space_mono_font_from_github failed due to this error: {e}"
+        )
+        print("Falling back to DejaVu Sans Mono")
+        return fm.FontProperties(family="DejaVu Sans Mono")
+
+
+def _get_instrument_sans_font_from_github():
+    """
+    Downloads the Instrument Sans Medium (weight 500) font from the google fonts
+    GitHub repository and stores it within a temp file which is then loaded into
+    a FontProperties object for use in plot headings.
+
+    Returns: a matplotlib.font_manager.FontProperties object with the Instrument
+        Sans Medium font
+    """
+    try:
+        url = "https://raw.githubusercontent.com/google/fonts/main/ofl/instrumentsans/InstrumentSans%5Bwdth%2Cwght%5D.ttf"
+
+        response = get(url, timeout=120)
+        font_bytes = response.content
+
+        # Validate we got a real font file (TTF/OTF magic bytes), not an HTML error page
+        valid_magic = (
+            b"\x00\x01\x00\x00",
+            b"OTTO",
+            b"true",
+            b"typ1",
+            b"wOFF",
+            b"wOF2",
+        )
+        if not any(font_bytes[:4] == magic for magic in valid_magic):
+            raise ValueError("Downloaded content is not a valid font file")
+
+        f = NamedTemporaryFile(delete=False, suffix=".ttf")
+        f.write(font_bytes)
+        f.close()
+
+        return fm.FontProperties(fname=f.name)
+    except Exception as e:
+        print(
+            f"_get_instrument_sans_font_from_github failed due to this error: {e}"
+        )
+        print("Falling back to DejaVu Sans")
+        return fm.FontProperties(family="DejaVu Sans", weight=500)
+
+
+def _apply_rounded_map_corners(fig, ax, edge_color="#535353"):
+    """
+    Clips a cartopy subplot to a rounded rectangle using ax.set_boundary(), so
+    map tiles, polygons, and all axes content are cleanly clipped — no corner
+    masking needed.  A matching FancyBboxPatch border outline is then drawn over
+    the figure in figure coordinates.
+
+    Must be called after ax.set_extent() (so viewLim is populated) and after
+    tight_layout / subplots_adjust / set_size_inches (for the border position).
+    """
+    # Corner radius as a fraction of the shorter view dimension
+    r_frac = 0.03
+
+    # Get the view limits in the projection's native coordinate system (e.g.
+    # metres for LambertConformal).  clip_to_bbox() inside set_boundary() uses
+    # these same coordinates, so the path must live in the same space.
+    vl = ax.viewLim
+    vx0, vy0, vx1, vy1 = vl.x0, vl.y0, vl.x1, vl.y1
+    vw, vh = vx1 - vx0, vy1 - vy0
+    r = min(abs(vw), abs(vh)) * r_frac
+
+    # Build a rounded-rectangle path in projection coordinates using quadratic
+    # Bezier curves at each corner.
+    verts = [
+        (vx0 + r, vy0),     # MOVETO  — bottom edge start
+        (vx1 - r, vy0),     # LINETO  — bottom edge end
+        (vx1, vy0),         # CURVE3 control  — bottom-right corner
+        (vx1, vy0 + r),     # CURVE3 anchor   — bottom-right corner
+        (vx1, vy1 - r),     # LINETO  — right edge end
+        (vx1, vy1),         # CURVE3 control  — top-right corner
+        (vx1 - r, vy1),     # CURVE3 anchor   — top-right corner
+        (vx0 + r, vy1),     # LINETO  — top edge end
+        (vx0, vy1),         # CURVE3 control  — top-left corner
+        (vx0, vy1 - r),     # CURVE3 anchor   — top-left corner
+        (vx0, vy0 + r),     # LINETO  — left edge end
+        (vx0, vy0),         # CURVE3 control  — bottom-left corner
+        (vx0 + r, vy0),     # CURVE3 anchor   — close back to start
+    ]
+    codes = [
+        MplPath.MOVETO,
+        MplPath.LINETO,
+        MplPath.CURVE3, MplPath.CURVE3,
+        MplPath.LINETO,
+        MplPath.CURVE3, MplPath.CURVE3,
+        MplPath.LINETO,
+        MplPath.CURVE3, MplPath.CURVE3,
+        MplPath.LINETO,
+        MplPath.CURVE3, MplPath.CURVE3,
+    ]
+    clip_path = MplPath(verts, codes, closed=True)
+
+    # No transform argument: cartopy interprets the path in the projection's
+    # native CRS (same units as viewLim), so clip_to_bbox() works correctly.
+    ax.set_boundary(clip_path)
+
+    # Suppress the default rectangular cartopy outline
+    if "geo" in ax.spines:
+        ax.spines["geo"].set_visible(False)
+    elif hasattr(ax, "outline_patch"):
+        ax.outline_patch.set_visible(False)  # cartopy < 0.20
+
+    # Draw a matching rounded border outline in figure coordinates
+    b = ax.get_position()
+    x0, y0, x1, y1 = b.x0, b.y0, b.x1, b.y1
+    w, h = x1 - x0, y1 - y0
+    r_fig = min(w, h) * r_frac
+
+    fig.add_artist(
+        FancyBboxPatch(
+            (x0, y0),
+            w,
+            h,
+            boxstyle=f"round,pad=0,rounding_size={r_fig}",
+            transform=fig.transFigure,
+            facecolor="none",
+            edgecolor=edge_color,
+            linewidth=0.8,
+            zorder=9,
+            clip_on=False,
+        )
+    )
 
 
 def plot_fire_weather_outlooks(
     storm_prediction_center_fire_weather_outlooks: dict,
-    font: fm.FontProperties = _get_space_mono_font_from_github(),
+    heading_font: fm.FontProperties = _get_instrument_sans_font_from_github(),
+    mono_font: fm.FontProperties = _get_space_mono_font_from_github(),
 ) -> None:
     """
     Plots the fire weather outlooks for the next 4 days. Returns a png file to the outputs folder.
@@ -110,26 +233,44 @@ def plot_fire_weather_outlooks(
 
         # Create a figure with 4 subplots
         fig, axs = plt.subplots(
-            2, 2, figsize=(10, 7), subplot_kw={"projection": ccrs.LambertConformal()}
+            2,
+            2,
+            figsize=(10, 7),
+            subplot_kw={"projection": ccrs.LambertConformal()},
         )
+        fig.patch.set_facecolor("#F3F3F3")
 
         # each the four maps {row, col}
         plot_sections = [axs[0, 0], axs[0, 1], axs[1, 0], axs[1, 1]]
 
         for day, plot_section in zip(
-            storm_prediction_center_fire_weather_outlooks, plot_sections, strict=False
+            storm_prediction_center_fire_weather_outlooks,
+            plot_sections,
+            strict=False,
         ):
 
-            fire_wx_outlook_geojson = storm_prediction_center_fire_weather_outlooks[
-                day
-            ]["fire_wx_outlook_geojson"]
-            dry_lightning_geojson = storm_prediction_center_fire_weather_outlooks[day][
-                "dry_lightning_geojson"
-            ]
-            
+            fire_wx_outlook_geojson = (
+                storm_prediction_center_fire_weather_outlooks[day][
+                    "fire_wx_outlook_geojson"
+                ]
+            )
+            dry_lightning_geojson = (
+                storm_prediction_center_fire_weather_outlooks[day][
+                    "dry_lightning_geojson"
+                ]
+            )
+
             # Check if we have valid geometry data with actual risk using the new validation flags
-            has_fire_wx_geometry = storm_prediction_center_fire_weather_outlooks[day].get("has_fire_wx_geometry", False)
-            has_dry_lightning_geometry = storm_prediction_center_fire_weather_outlooks[day].get("has_dry_lightning_geometry", False)
+            has_fire_wx_geometry = (
+                storm_prediction_center_fire_weather_outlooks[day].get(
+                    "has_fire_wx_geometry", False
+                )
+            )
+            has_dry_lightning_geometry = (
+                storm_prediction_center_fire_weather_outlooks[day].get(
+                    "has_dry_lightning_geometry", False
+                )
+            )
 
             # initalize a dict for plotting layers
             layers_to_plot = {
@@ -137,14 +278,16 @@ def plot_fire_weather_outlooks(
                     GeoDataFrame.from_features(
                         fire_wx_outlook_geojson["features"], crs=4326
                     )
-                    if has_fire_wx_geometry and fire_wx_outlook_geojson["features"]
+                    if has_fire_wx_geometry
+                    and fire_wx_outlook_geojson["features"]
                     else None
                 ),
                 "dry_lightning_gdf": (
                     GeoDataFrame.from_features(
                         dry_lightning_geojson["features"], crs=4326
                     )
-                    if has_dry_lightning_geometry and dry_lightning_geojson["features"]
+                    if has_dry_lightning_geometry
+                    and dry_lightning_geojson["features"]
                     else None
                 ),
             }
@@ -180,10 +323,11 @@ def plot_fire_weather_outlooks(
                         if fill == " ":
                             fill = "none"
 
-                        idp = feature["properties"].get("idp_source", "").lower()
+                        idp = (
+                            feature["properties"].get("idp_source", "").lower()
+                        )
                         is_dry_lightning_attr = (
-                            "dryltg" in idp
-                            or "drytprob" in idp
+                            "dryltg" in idp or "drytprob" in idp
                         )
 
                         # Dry-thunder layers (days 3–4) use dn codes that overlap
@@ -228,65 +372,57 @@ def plot_fire_weather_outlooks(
             # if there's no layers or all dn values are zero
             if not has_any_geometry or all_dn_zero:
                 # Check if we have any valid data at all (either fire wx or dry lightning)
-                has_any_valid_data = has_fire_wx_geometry or has_dry_lightning_geometry
-                
-                if not has_any_valid_data:
-                    # add a text annotation for truly no data
+                has_any_valid_data = (
+                    has_fire_wx_geometry or has_dry_lightning_geometry
+                )
+
+                if not has_any_valid_data or all_dn_zero:
                     plot_section.text(
                         0.5,
                         0.5,
-                        "Limited Fire Weather Concerns",
+                        "LIMITED FIRE WEATHER CONCERNS",
                         ha="center",
                         va="center",
                         transform=plot_section.transAxes,
-                        color="green",
-                        fontproperties=font,
+                        color="#222222",
+                        fontproperties=mono_font,
                         fontsize=12,
                         bbox={
-                            "facecolor": "white",
-                            "edgecolor": "green",
-                            "boxstyle": "round,pad=0.5",
-                        },
-                    )
-                elif all_dn_zero:
-                    # We have geometry but all dn values are 0 (no risk areas)
-                    # Don't plot the geometries, just show the message
-                    plot_section.text(
-                        0.5,
-                        0.5,
-                        "Limited Fire Weather Concerns",
-                        ha="center",
-                        va="center",
-                        transform=plot_section.transAxes,
-                        color="green",
-                        fontproperties=font,
-                        fontsize=12,
-                        bbox={
-                            "facecolor": "white",
-                            "edgecolor": "green",
-                            "boxstyle": "round,pad=0.5",
+                            "facecolor": "#EDEDED",
+                            "edgecolor": "#535353",
+                            "boxstyle": "square,pad=0.5",
                         },
                     )
 
             # set the extent
-            plot_section.set_extent(_country_extent_coordinates("United States"))
+            plot_section.set_extent(
+                _country_extent_coordinates("United States")
+            )
 
             # set the title
             # calculate the date for the current day
-            current_date_utc = datetime.now(timezone.utc) + timedelta(days=int(day))
+            current_date_utc = datetime.now(timezone.utc) + timedelta(
+                days=int(day)
+            )
 
             # format the date to include the day name and the date (e.g., Monday Jan 01)
-            formatted_date = current_date_utc.strftime("%A %b %d")
+            formatted_date = current_date_utc.strftime("%A %b %d").upper()
 
             # set the title
-            plot_section.set_title(f"{formatted_date}", fontproperties=font)
+            plot_section.set_title(
+                f"{formatted_date}",
+                fontproperties=mono_font,
+                color="#222222",
+            )
 
         # Create custom legend handles
         legend_handles = [
-            Patch(facecolor="orange", edgecolor="darkorange", label="Elevated"),
-            Patch(facecolor="red", edgecolor="darkred", label="Critical"),
-            Patch(facecolor="purple", edgecolor="#4B0082", label="Extreme"),
-            Patch(facecolor="brown", edgecolor="brown", label="Dry Lightning"),
+            Patch(
+                facecolor="orange", edgecolor="darkorange", label="ELEVATED"
+            ),
+            Patch(facecolor="red", edgecolor="darkred", label="CRITICAL"),
+            Patch(facecolor="purple", edgecolor="#4B0082", label="EXTREME"),
+            Patch(facecolor="brown", edgecolor="brown", label="DRY LIGHTNING"),
         ]
 
         # Add legend to the plot
@@ -295,14 +431,20 @@ def plot_fire_weather_outlooks(
             loc="upper right",
             ncol=1,
             bbox_to_anchor=(1.0, 0.91),
-            prop=font,
+            prop=mono_font,
+            fancybox=True,
+            framealpha=1.0,
+            facecolor="#EDEDED",
+            edgecolor="#535353",
         )
 
         # set the overall figure title
         fig.suptitle(
             "Storm Prediction Center Fire Weather Outlooks",
             fontsize=16,
-            fontproperties=font,
+            fontweight="bold",
+            fontproperties=heading_font,
+            color="#222222",
         )
 
         # create a new current date variable
@@ -312,12 +454,12 @@ def plot_fire_weather_outlooks(
         fig.text(
             0.01,
             0.01,
-            f"Issued: {current_date_utc.strftime('%Y-%m-%d %H:%M')} UTC",
+            f"ISSUED: {current_date_utc.strftime('%Y-%m-%d %H:%M')} UTC",
             fontsize=8,
-            color="black",
+            color="#535353",
             ha="left",
             va="bottom",
-            fontproperties=font,
+            fontproperties=mono_font,
         )
 
         # set a tight layout
@@ -331,6 +473,10 @@ def plot_fire_weather_outlooks(
 
         fig.set_size_inches(12.8, 7.2)
 
+        # Apply rounded corners to each subplot
+        for section in plot_sections:
+            _apply_rounded_map_corners(fig, section)
+
         # create a datetime object for current utc ime and format it to YYYYMMDD_HHM format
         current_date_utc_yyyymmdd_str = current_date_utc.strftime("%Y%m%d")
 
@@ -338,10 +484,13 @@ def plot_fire_weather_outlooks(
         plt.savefig(
             f"outputs\\fire_wx_outlook_spc_{current_date_utc_yyyymmdd_str}.png",
             dpi=300,
+            facecolor="#F3F3F3",
         )
 
         # print message that the polt was saved
-        print("Fire Weather Outlook maps completed and saved to outputs folder")
+        print(
+            "Fire Weather Outlook maps completed and saved to outputs folder"
+        )
 
     except Exception as e:
         print(f"plot_fire_weather_outlooks failed due to this error:\n{e}")
@@ -350,7 +499,8 @@ def plot_fire_weather_outlooks(
 
 def plot_bom_fire_danger_ratings(
     bom_fire_danger: Dict[str, str],
-    font: fm.FontProperties = _get_space_mono_font_from_github(),
+    heading_font: fm.FontProperties = _get_instrument_sans_font_from_github(),
+    mono_font: fm.FontProperties = _get_space_mono_font_from_github(),
 ) -> None:
     """
     Plots the Australian fire weather districts. Returns a png file to the outputs folder.
@@ -377,11 +527,14 @@ def plot_bom_fire_danger_ratings(
                 )
             },
         )
+        fig.patch.set_facecolor("#F3F3F3")
 
         # each the four maps {row, col}
         plot_sections = [axs[0, 0], axs[0, 1], axs[1, 0], axs[1, 1]]
 
-        for i, (date, plot_section) in enumerate(zip(bom_fire_danger, plot_sections, strict=False)):
+        for i, (date, plot_section) in enumerate(
+            zip(bom_fire_danger, plot_sections, strict=False)
+        ):
             # Get the fire weather districts data for this date
             fire_weather_districts_data = loads(bom_fire_danger[date])
 
@@ -392,19 +545,27 @@ def plot_bom_fire_danger_ratings(
 
             # Filter for districts with Forecast_Period = (i+1) AND FireBehavIndex >= 41
             forecast_period = i + 1  # 1, 2, 3, 4 for the 4 maps
-            
-            if 'FireBehavIndex' in fire_weather_districts_gdf.columns and 'Forecast_Period' in fire_weather_districts_gdf.columns:
+
+            if (
+                "FireBehavIndex" in fire_weather_districts_gdf.columns
+                and "Forecast_Period" in fire_weather_districts_gdf.columns
+            ):
                 # Filter for districts with specific forecast period and fire behavior index >= 41
-                period_filter = fire_weather_districts_gdf['Forecast_Period'] == forecast_period
-                index_filter = fire_weather_districts_gdf['FireBehavIndex'] >= 41
-                
+                period_filter = (
+                    fire_weather_districts_gdf["Forecast_Period"]
+                    == forecast_period
+                )
+                index_filter = (
+                    fire_weather_districts_gdf["FireBehavIndex"] >= 41
+                )
+
                 high_risk_districts = fire_weather_districts_gdf[
                     period_filter & index_filter
                 ]
-            elif 'FireBehavIndex' in fire_weather_districts_gdf.columns:
+            elif "FireBehavIndex" in fire_weather_districts_gdf.columns:
                 # If no Forecast_Period column, just filter by FireBehavIndex
                 high_risk_districts = fire_weather_districts_gdf[
-                    fire_weather_districts_gdf['FireBehavIndex'] >= 41
+                    fire_weather_districts_gdf["FireBehavIndex"] >= 41
                 ]
             else:
                 # If neither column found, show all districts
@@ -417,17 +578,21 @@ def plot_bom_fire_danger_ratings(
             plot_section.add_image(tiler, 4)
 
             # Print debug info about filtering results
-            print(f"  Forecast Period {forecast_period}: Found {len(high_risk_districts)} districts with FireBehavIndex >= 41")
+            print(
+                f"  Forecast Period {forecast_period}: Found {len(high_risk_districts)} districts with FireBehavIndex >= 41"
+            )
 
             # Plot districts with high fire danger ratings
             if len(high_risk_districts) > 0:
                 for feature in high_risk_districts.iterfeatures():
                     geom = shape(feature["geometry"])
-                    
+
                     # Use color scheme based on FireDanger rating
                     fire_danger = feature["properties"].get("FireDanger", "")
-                    fire_behav_index = feature["properties"].get("FireBehavIndex", 0)
-                    
+                    fire_behav_index = feature["properties"].get(
+                        "FireBehavIndex", 0
+                    )
+
                     # Fallback to index-based coloring
                     if fire_behav_index >= 100:
                         facecolor = "red"
@@ -456,17 +621,17 @@ def plot_bom_fire_danger_ratings(
                 plot_section.text(
                     0.5,
                     0.5,
-                    "Limited Fire Weather Concerns",
+                    "LIMITED FIRE WEATHER CONCERNS",
                     ha="center",
                     va="center",
                     transform=plot_section.transAxes,
-                    color="green",
-                    fontproperties=font,
+                    color="#222222",
+                    fontproperties=mono_font,
                     fontsize=12,
                     bbox={
-                        "facecolor": "white",
-                        "edgecolor": "green",
-                        "boxstyle": "round,pad=0.5",
+                        "facecolor": "#EDEDED",
+                        "edgecolor": "#535353",
+                        "boxstyle": "square,pad=0.5",
                     },
                 )
 
@@ -475,17 +640,23 @@ def plot_bom_fire_danger_ratings(
 
             # set the title — BOM period start (UTC date key) is one day behind the
             # forecast calendar day shown to users; shift +1 for subplot labels
-            date_for_title = datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)
-            title_date = date_for_title.strftime("%A %b %d")
+            date_for_title = datetime.strptime(date, "%Y-%m-%d") + timedelta(
+                days=1
+            )
+            title_date = date_for_title.strftime("%A %b %d").upper()
 
             # set the title
-            plot_section.set_title(f"{title_date}", fontproperties=font)
+            plot_section.set_title(
+                f"{title_date}",
+                fontproperties=mono_font,
+                color="#222222",
+            )
 
         # Create custom legend handles
         legend_handles = [
-            Patch(facecolor="yellow", edgecolor="#CCCC00", label="High"),
-            Patch(facecolor="orange", edgecolor="darkorange", label="Extreme"),
-            Patch(facecolor="red", edgecolor="darkred", label="Catastrophic"),
+            Patch(facecolor="yellow", edgecolor="#CCCC00", label="HIGH"),
+            Patch(facecolor="orange", edgecolor="darkorange", label="EXTREME"),
+            Patch(facecolor="red", edgecolor="darkred", label="CATASTROPHIC"),
         ]
 
         # Add legend to the plot
@@ -494,7 +665,11 @@ def plot_bom_fire_danger_ratings(
             loc="upper right",
             ncol=1,
             bbox_to_anchor=(0.99, 0.91),
-            prop=font,
+            prop=mono_font,
+            fancybox=True,
+            framealpha=1.0,
+            facecolor="#EDEDED",
+            edgecolor="#535353",
         )
 
         # set the overall figure title
@@ -502,7 +677,8 @@ def plot_bom_fire_danger_ratings(
             "Bureau of Meteorology Fire Danger Ratings",
             fontsize=16,
             fontweight="bold",
-            fontproperties=font,
+            fontproperties=heading_font,
+            color="#222222",
         )
 
         # add an issued date time text to the lower left corner
@@ -510,12 +686,12 @@ def plot_bom_fire_danger_ratings(
         fig.text(
             0.01,
             0.01,
-            f"Issued: {current_date_utc.strftime('%Y-%m-%d %H:%M')} UTC",
+            f"ISSUED: {current_date_utc.strftime('%Y-%m-%d %H:%M')} UTC",
             fontsize=8,
-            color="black",
+            color="#535353",
             ha="left",
             va="bottom",
-            fontproperties=font,
+            fontproperties=mono_font,
         )
 
         # set a tight layout
@@ -528,6 +704,10 @@ def plot_bom_fire_danger_ratings(
 
         fig.set_size_inches(12.8, 7.2)
 
+        # Apply rounded corners to each subplot
+        for section in plot_sections:
+            _apply_rounded_map_corners(fig, section)
+
         # create a datetime object for current utc time and format it to YYYYMMDD format
         current_date_utc_yyyymmdd_str = current_date_utc.strftime("%Y%m%d")
 
@@ -535,11 +715,14 @@ def plot_bom_fire_danger_ratings(
         plt.savefig(
             f"outputs\\fire_wx_outlook_bom_{current_date_utc_yyyymmdd_str}.png",
             dpi=300,
+            facecolor="#F3F3F3",
         )
 
         # print message that the plot was saved
-        print("Fire Weather Districts map completed and saved to outputs folder")
+        print(
+            "Fire Weather Districts map completed and saved to outputs folder"
+        )
 
     except Exception as e:
-        print(f"plot_bom_fire_danger_ratings failed due to this error:\n{e}")
+        print(f"plot_bom_fire_danger_ratings failed: {e}")
         raise
